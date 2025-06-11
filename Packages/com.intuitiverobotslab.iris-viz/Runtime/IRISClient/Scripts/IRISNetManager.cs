@@ -308,12 +308,12 @@ namespace IRIS.Node
 					IPAddress ipv6Address = device.GetIPProperties().UnicastAddresses[0].Address; //This will give ipv6 address of certain adapter
 					IPAddress ipv4Address = device.GetIPProperties().UnicastAddresses[1].Address; //This will give ipv4 address of certain adapter
 					IPAddress unicastIPv4Mask = device.GetIPProperties().UnicastAddresses[1].IPv4Mask; //This will give ipv4 mask of certain adapter
-					Debug.Log($"[HL2][Network] Found WLAN interface: {device.Name} with IPv4: {ipv4Address} and mask: {unicastIPv4Mask}");
+					Debug.Log($"Found WLAN interface: {device.Name} with IPv4: {ipv4Address} and mask: {unicastIPv4Mask}");
 					// Get the broadcast address for the IPv4 address
 					return ipv4Address;
 				}
 			}
-			Debug.LogError("[HL2][Network] No active WLAN interface found.");
+			Debug.LogError("No active WLAN interface found.");
 			return null;
 		}
 
