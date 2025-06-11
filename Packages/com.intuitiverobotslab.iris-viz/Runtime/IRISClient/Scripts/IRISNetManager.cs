@@ -10,6 +10,7 @@ using System.Net;
 using System.Net.Sockets;
 using IRIS.Utilities;
 using Unity.VisualScripting;
+using System.Net.NetworkInformation;
 
 namespace IRIS.Node
 {
@@ -20,7 +21,7 @@ namespace IRIS.Node
 		public static IRISNetManager Instance { get; private set; }
 		// Node information
 		public NodeInfo localInfo { get; set; }
-		public NodeInfo masterInfo { get; set; }
+		// public NodeInfo masterInfo { get; set; }
 		// public NodeInfoManager nodeInfoManager { get; private set; }
 		// UDP Task management
 		private CancellationTokenSource cancellationTokenSource;
@@ -29,17 +30,11 @@ namespace IRIS.Node
 		private object updateActionLock = new();
 		public Action OnConnectionStart;
 		public Action OnDisconnected;
-		// ZMQ Sockets for communication, in this stage, we run them in the main thread
-		// publisher socket for sending messages to other nodes
-		public PublisherSocket _pubSocket;
-		// response socket for service running in the local node
 		public ResponseSocket _resSocket;
 		public Dictionary<string, Func<byte[], byte[]>> serviceCallbacks { get; private set; }
 		// subscriber socket for receiving messages from only master node
 		private SubscriberSocket _subSocket;
 		public Dictionary<string, Action<byte[]>> subscribeCallbacks { get; private set; }
-		// Request socket for sending service request to only master node
-		private RequestSocket _reqSocket;
 		private List<NetMQSocket> _sockets;
 		public Action ConnectionSpin;
 		// Status flags
@@ -47,8 +42,18 @@ namespace IRIS.Node
 		private bool isConnected = false;
 		// Constants
 		private const int HEARTBEAT_INTERVAL = 500;
-		// Rename Service
+		private const string MCAST_ADDR = "239.192.1.1";
+		private static readonly byte[] DISCOVERY_MSG = Encoding.UTF8.GetBytes("IRIS");
 		private Service<string, string> renameService;
+
+		#region OLD_NETWORK_CODE
+		// // Request socket for sending service request to only master node
+		// private RequestSocket _reqSocket;
+		// ZMQ Sockets for communication, in this stage, we run them in the main thread
+		// // publisher socket for sending messages to other nodes
+		// public PublisherSocket _pubSocket;
+		// response socket for service running in the local node
+		#endregion
 
 		private void Awake()
 		{
@@ -67,7 +72,7 @@ namespace IRIS.Node
 			{
 				name = "UnityNode",
 				nodeID = Guid.NewGuid().ToString(),
-				addr = new NodeAddress("127.0.0.1", 0),
+				addr = new NodeAddress(GetWLANIpAdress().ToString(), 0),
 				type = "UnityNode",
 				servicePort = UnityPortSet.SERVICE,
 				topicPort = UnityPortSet.TOPIC,
@@ -90,11 +95,11 @@ namespace IRIS.Node
 			}
 			// NOTE: Since the NetZMQ setting is initialized in "AsyncIO.ForceDotNet.Force();"
 			// NOTE: we should initialize the sockets after that
-			_pubSocket = new PublisherSocket();
+			// _pubSocket = new PublisherSocket();
 			_resSocket = new ResponseSocket();
 			_subSocket = new SubscriberSocket();
-			_reqSocket = new RequestSocket();
-			_sockets = new List<NetMQSocket>() { _pubSocket, _resSocket, _subSocket, _reqSocket };
+			// _reqSocket = new RequestSocket();
+			_sockets = new List<NetMQSocket>() { _resSocket, _subSocket/*, _reqSocket, _pubSocket*/ };
 			serviceCallbacks = new();
 			subscribeCallbacks = new();
 			cancellationTokenSource = new CancellationTokenSource();
@@ -130,12 +135,13 @@ namespace IRIS.Node
 			}
 		}
 
-		private void OnApplicationQuit() {
+		private void OnApplicationQuit()
+		{
 			if (isConnected)
 			{
-				Debug.Log("Application is quitting, stop connection");
-				CallService<string, string>("NodeOffline", localInfo.nodeID);
-			};
+				Debug.Log("Application is quitting.");
+				// CallService<string, string>("NodeOffline", localInfo.nodeID);
+			}
 		}
 
 		private void OnDestroy()
@@ -164,22 +170,23 @@ namespace IRIS.Node
 			lock (updateActionLock)
 			{
 				// subscription
-				_subSocket.Connect($"tcp://{masterInfo.addr.ip}:{masterInfo.topicPort}");
+				_subSocket.Bind($"tcp://{localInfo.addr.ip}:{UnityPortSet.TOPIC}");
 				_subSocket.Subscribe("");
-				Debug.Log($"Start subscribing to {masterInfo.addr.ip}:{masterInfo.topicPort}");
+				Debug.Log($"Start subscribing to {localInfo.addr.ip}:{UnityPortSet.TOPIC}");
 				// local service
 				_resSocket.Bind($"tcp://{localInfo.addr.ip}:{UnityPortSet.SERVICE}");
 				ConnectionSpin += SubscriptionSpin;
 				ConnectionSpin += ServiceRespondSpin;
 				Debug.Log($"Starting local service at {localInfo.addr.ip}:{UnityPortSet.SERVICE}");
-				// request to master node
-				_reqSocket.Connect($"tcp://{masterInfo.addr.ip}:{masterInfo.servicePort}");
-				Debug.Log($"Starting connecting to server at {masterInfo.addr.ip}:{masterInfo.servicePort}");
-				// local publish
-				_pubSocket.Bind($"tcp://{localInfo.addr.ip}:{UnityPortSet.TOPIC}");
-				Debug.Log($"Starting publish topic at {localInfo.addr.ip}:{UnityPortSet.TOPIC}");
+
+				// // request to master node
+				// _reqSocket.Connect($"tcp://{masterInfo.addr.ip}:{masterInfo.servicePort}");
+				// Debug.Log($"Starting connecting to server at {masterInfo.addr.ip}:{masterInfo.servicePort}");
+				// // local publish
+				// _pubSocket.Bind($"tcp://{localInfo.addr.ip}:{UnityPortSet.TOPIC}");
+				// Debug.Log($"Starting publish topic at {localInfo.addr.ip}:{UnityPortSet.TOPIC}");
 				// CalculateTimestampOffset();
-				CallService<NodeInfo, string>("RegisterNode", localInfo);
+				// CallService<NodeInfo, string>("RegisterNode", localInfo);
 			}
 		}
 
@@ -193,9 +200,9 @@ namespace IRIS.Node
 				// _topicsCallbacks.Clear();
 				if (!isConnected) return;
 				_resSocket.Unbind($"tcp://{localInfo.addr.ip}:{UnityPortSet.SERVICE}");
-				_pubSocket.Unbind($"tcp://{localInfo.addr.ip}:{UnityPortSet.TOPIC}");
-				_reqSocket.Disconnect($"tcp://{masterInfo.addr.ip}:{masterInfo.servicePort}");
-				_subSocket.Disconnect($"tcp://{masterInfo.addr.ip}:{masterInfo.topicPort}");
+				// _pubSocket.Unbind($"tcp://{localInfo.addr.ip}:{UnityPortSet.TOPIC}");
+				// _reqSocket.Disconnect($"tcp://{masterInfo.addr.ip}:{masterInfo.servicePort}");
+				_subSocket.Unbind($"tcp://{localInfo.addr.ip}:{UnityPortSet.TOPIC}");
 
 			}
 			Debug.Log("Stop connection");
@@ -204,40 +211,30 @@ namespace IRIS.Node
 
 		public async Task NodeTask(CancellationToken token)
 		{
-			Debug.Log("Node task starts and is searching for master node...");
-			UdpClient udpClient = NetworkUtils.CreateUDPClient(UnityPortSet.DISCOVERY);
-			IPEndPoint endPoint = new IPEndPoint(IPAddress.Any, 0);
-			while (isRunning)
+			Debug.Log("Node task starts and is sending Discovery messages...");
+
+			using (var udp = new UdpClient())
 			{
-				try
+				var endpoint = new IPEndPoint(IPAddress.Parse(MCAST_ADDR), UnityPortSet.DISCOVERY);
+
+				while (isRunning)
 				{
-					if (udpClient.Available == 0) continue;
-					byte[] result = udpClient.Receive(ref endPoint);
-					string message = Encoding.UTF8.GetString(result);
-					if (!message.StartsWith("SimPub")) continue;
-					string[] split = message.Split(MsgUtils.SEPARATOR, 2);
-					NodeInfo info = MsgUtils.StringDeserialize2Object<NodeInfo>(split[1]);
-					if (masterInfo == null || masterInfo.nodeID != info.nodeID)
+					try
 					{
-						if (isConnected) OnDisconnected?.Invoke();
-						masterInfo = info;
-						localInfo.addr.ip = NetworkUtils.GetLocalIPsInSameSubnet(masterInfo.addr.ip);
-						Debug.Log($"Discovered server at {masterInfo.addr.ip} with local IP {localInfo.addr.ip}");
-						OnConnectionStart?.Invoke();
+						udp.Send(DISCOVERY_MSG, DISCOVERY_MSG.Length, endpoint);
+						await Task.Delay(HEARTBEAT_INTERVAL, token);
 					}
-					await Task.Delay(50, token);
-				}
-				catch (TaskCanceledException)
-				{
-					Debug.Log("Task is canceled by user");
-					break;
-				}
-				catch (Exception e)
-				{
-					Debug.LogWarning(e.StackTrace);
+					catch (TaskCanceledException)
+					{
+						Debug.Log("Task is canceled by user");
+						break;
+					}
+					catch (Exception e)
+					{
+						Debug.LogWarning(e.StackTrace);
+					}
 				}
 			}
-			udpClient.Close();
 			Debug.Log("Node task ends");
 		}
 
@@ -283,40 +280,6 @@ namespace IRIS.Node
 			}
 		}
 
-		// TODO: make it as a generic request type
-		public byte[] CallBytesService(string service_name, string request)
-		{
-			_reqSocket.SendFrame($"{service_name}{MsgUtils.SEPARATOR}{request}");
-			if (!_reqSocket.TryReceiveFrameBytes(TimeSpan.FromMilliseconds(10000), out byte[] bytes, out bool more))
-			{
-				Debug.LogWarning($"Request Timeout");
-				return new byte[] { };
-			}
-			List<byte> result = new List<byte>(bytes);
-			result.AddRange(bytes);
-			while (more) result.AddRange(_reqSocket.ReceiveFrameBytes(out more));
-			return result.ToArray();
-		}
-
-		public ResponseType CallService<RequestType, ResponseType>(string serviceName, RequestType request)
-		{
-			byte[] requestBytes;
-			if (typeof(RequestType) == typeof(string))
-			{
-				requestBytes = MsgUtils.String2Bytes((string)(object)request);
-			}
-			else
-			{
-				requestBytes = MsgUtils.Serialize2Byte(request);
-			}
-			byte[] responseBytes = CallBytesService(serviceName, Encoding.UTF8.GetString(requestBytes));
-			if (typeof(ResponseType) == typeof(string))
-			{
-				string result = Encoding.UTF8.GetString(responseBytes);
-				return (ResponseType)(object)result;
-			}
-			return MsgUtils.BytesDeserialize2Object<ResponseType>(responseBytes);
-		}
 
 		// TODO: make it as a generic request type
 		public string Rename(string newName)
@@ -327,5 +290,62 @@ namespace IRIS.Node
 			PlayerPrefs.Save();
 			return IRISSignal.SUCCESS;
 		}
+
+		private static IPAddress GetWLANIpAdress()
+		{
+			NetworkInterface[] intf = NetworkInterface.GetAllNetworkInterfaces();
+			foreach (NetworkInterface device in intf)
+			{
+				if (device.NetworkInterfaceType == NetworkInterfaceType.Wireless80211 && device.OperationalStatus == OperationalStatus.Up)
+				{
+					IPAddress ipv6Address = device.GetIPProperties().UnicastAddresses[0].Address; //This will give ipv6 address of certain adapter
+					IPAddress ipv4Address = device.GetIPProperties().UnicastAddresses[1].Address; //This will give ipv4 address of certain adapter
+					IPAddress unicastIPv4Mask = device.GetIPProperties().UnicastAddresses[1].IPv4Mask; //This will give ipv4 mask of certain adapter
+					Debug.Log($"[HL2][Network] Found WLAN interface: {device.Name} with IPv4: {ipv4Address} and mask: {unicastIPv4Mask}");
+					// Get the broadcast address for the IPv4 address
+					return ipv4Address;
+				}
+			}
+			Debug.LogError("[HL2][Network] No active WLAN interface found.");
+			return null;
+		}
+
+		#region OLD_NETWORK_CODE
+		// // TODO: make it as a generic request type
+		// public byte[] CallBytesService(string service_name, string request)
+		// {
+		// 	_reqSocket.SendFrame($"{service_name}{MsgUtils.SEPARATOR}{request}");
+		// 	if (!_reqSocket.TryReceiveFrameBytes(TimeSpan.FromMilliseconds(10000), out byte[] bytes, out bool more))
+		// 	{
+		// 		Debug.LogWarning($"Request Timeout");
+		// 		return new byte[] { };
+		// 	}
+		// 	List<byte> result = new List<byte>(bytes);
+		// 	result.AddRange(bytes);
+		// 	while (more) result.AddRange(_reqSocket.ReceiveFrameBytes(out more));
+		// 	return result.ToArray();
+		// }
+
+		// public ResponseType CallService<RequestType, ResponseType>(string serviceName, RequestType request)
+		// {
+		// 	byte[] requestBytes;
+		// 	if (typeof(RequestType) == typeof(string))
+		// 	{
+		// 		requestBytes = MsgUtils.String2Bytes((string)(object)request);
+		// 	}
+		// 	else
+		// 	{
+		// 		requestBytes = MsgUtils.Serialize2Byte(request);
+		// 	}
+		// 	byte[] responseBytes = CallBytesService(serviceName, Encoding.UTF8.GetString(requestBytes));
+		// 	if (typeof(ResponseType) == typeof(string))
+		// 	{
+		// 		string result = Encoding.UTF8.GetString(responseBytes);
+		// 		return (ResponseType)(object)result;
+		// 	}
+		// 	return MsgUtils.BytesDeserialize2Object<ResponseType>(responseBytes);
+		// }
+		#endregion
 	}
+
 }
