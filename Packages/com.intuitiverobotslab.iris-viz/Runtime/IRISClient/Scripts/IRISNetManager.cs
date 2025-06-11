@@ -72,7 +72,7 @@ namespace IRIS.Node
 			{
 				name = "UnityNode",
 				nodeID = Guid.NewGuid().ToString(),
-				addr = new NodeAddress(GetWLANIpAdress().ToString(), 0),
+				addr = new NodeAddress("127.0.0.1", 0),
 				type = "UnityNode",
 				servicePort = UnityPortSet.SERVICE,
 				topicPort = UnityPortSet.TOPIC,
@@ -291,6 +291,13 @@ namespace IRIS.Node
 			return IRISSignal.SUCCESS;
 		}
 
+		/// <summary>
+		/// Get the IP address of the WLAN interface.
+		/// </summary>
+		/// <returns>Returns the IPv4 address of the WLAN interface if found, otherwise returns null.</returns>
+		/// /// <remarks>
+		/// This is not used in the current implementation for safety reasons.
+		/// </remarks>
 		private static IPAddress GetWLANIpAdress()
 		{
 			NetworkInterface[] intf = NetworkInterface.GetAllNetworkInterfaces();
