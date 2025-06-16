@@ -50,13 +50,27 @@ namespace IRIS.SceneLoader
 		public SimBody root;
 	}
 
-	
+
+	public class AssetData
+	{
+		public byte[] Data { get; private set; }
+		public string Hash { get; private set; }
+		public double SizeMB => Math.Round(Data.Length / Math.Pow(2, 20), 2);
+
+		public AssetData(byte[] data, string hash)
+		{
+			Data = data;
+			Hash = hash;
+		}
+	}
+
+
 	public class SimAsset
 	{
 		public string name;
 	}
 
-	
+
 	public class SimMesh : SimAsset
 	{
 		public string hash;
@@ -67,7 +81,7 @@ namespace IRIS.SceneLoader
 
 	}
 
-	
+
 	public class SimMaterial : SimAsset
 	{
 		public string hash;
@@ -79,7 +93,7 @@ namespace IRIS.SceneLoader
 		public SimTexture texture;
 	}
 
-	
+
 	public class SimTexture : SimAsset
 	{
 		public string hash;

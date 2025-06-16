@@ -34,6 +34,8 @@ namespace IRIS.Node
 		public Dictionary<string, Func<byte[], byte[]>> serviceCallbacks { get; private set; }
 		// subscriber socket for receiving messages from only master node
 		private SubscriberSocket _subSocket;
+		// publisher socket for sending messages to other nodes
+		public PublisherSocket _pubSocket;
 		public Dictionary<string, Action<byte[]>> subscribeCallbacks { get; private set; }
 		private List<NetMQSocket> _sockets;
 		public Action ConnectionSpin;
@@ -46,12 +48,10 @@ namespace IRIS.Node
 		private static readonly byte[] DISCOVERY_MSG = Encoding.UTF8.GetBytes("IRIS");
 		private Service<string, string> renameService;
 
-		#region OLD_NETWORK_CODE
+		#region CLIENT_CODE
 		// // Request socket for sending service request to only master node
 		// private RequestSocket _reqSocket;
 		// ZMQ Sockets for communication, in this stage, we run them in the main thread
-		// // publisher socket for sending messages to other nodes
-		// public PublisherSocket _pubSocket;
 		// response socket for service running in the local node
 		#endregion
 
@@ -95,11 +95,11 @@ namespace IRIS.Node
 			}
 			// NOTE: Since the NetZMQ setting is initialized in "AsyncIO.ForceDotNet.Force();"
 			// NOTE: we should initialize the sockets after that
-			// _pubSocket = new PublisherSocket();
+			_pubSocket = new PublisherSocket();
 			_resSocket = new ResponseSocket();
 			_subSocket = new SubscriberSocket();
 			// _reqSocket = new RequestSocket();
-			_sockets = new List<NetMQSocket>() { _resSocket, _subSocket/*, _reqSocket, _pubSocket*/ };
+			_sockets = new List<NetMQSocket>() { _resSocket, _subSocket, _pubSocket/*, _reqSocket*/ };
 			serviceCallbacks = new();
 			subscribeCallbacks = new();
 			cancellationTokenSource = new CancellationTokenSource();
@@ -179,14 +179,16 @@ namespace IRIS.Node
 				ConnectionSpin += ServiceRespondSpin;
 				Debug.Log($"Starting local service at {localInfo.addr.ip}:{UnityPortSet.SERVICE}");
 
+				// local publish
+				_pubSocket.Bind($"tcp://{localInfo.addr.ip}:{UnityPortSet.TOPIC}");
+				Debug.Log($"Starting publish topic at {localInfo.addr.ip}:{UnityPortSet.TOPIC}");
+
 				// // request to master node
 				// _reqSocket.Connect($"tcp://{masterInfo.addr.ip}:{masterInfo.servicePort}");
 				// Debug.Log($"Starting connecting to server at {masterInfo.addr.ip}:{masterInfo.servicePort}");
-				// // local publish
-				// _pubSocket.Bind($"tcp://{localInfo.addr.ip}:{UnityPortSet.TOPIC}");
-				// Debug.Log($"Starting publish topic at {localInfo.addr.ip}:{UnityPortSet.TOPIC}");
 				// CalculateTimestampOffset();
 				// CallService<NodeInfo, string>("RegisterNode", localInfo);
+
 			}
 		}
 
@@ -200,7 +202,7 @@ namespace IRIS.Node
 				// _topicsCallbacks.Clear();
 				if (!isConnected) return;
 				_resSocket.Unbind($"tcp://{localInfo.addr.ip}:{UnityPortSet.SERVICE}");
-				// _pubSocket.Unbind($"tcp://{localInfo.addr.ip}:{UnityPortSet.TOPIC}");
+				_pubSocket.Unbind($"tcp://{localInfo.addr.ip}:{UnityPortSet.TOPIC}");
 				// _reqSocket.Disconnect($"tcp://{masterInfo.addr.ip}:{masterInfo.servicePort}");
 				_subSocket.Unbind($"tcp://{localInfo.addr.ip}:{UnityPortSet.TOPIC}");
 
@@ -317,7 +319,7 @@ namespace IRIS.Node
 			return null;
 		}
 
-		#region OLD_NETWORK_CODE
+		#region CLIENT_CODE
 		// // TODO: make it as a generic request type
 		// public byte[] CallBytesService(string service_name, string request)
 		// {

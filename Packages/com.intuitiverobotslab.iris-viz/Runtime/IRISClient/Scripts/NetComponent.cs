@@ -78,7 +78,7 @@ namespace IRIS.Node
 
 		public Subscriber(string topic, Action<MsgType> receiveAction)
 		{
-            _topic = topic;
+			_topic = topic;
 			_receiveAction = receiveAction;
 		}
 
@@ -159,17 +159,14 @@ namespace IRIS.Node
 
 		public void Unsubscribe()
 		{
-            IRISNetManager _netManager = IRISNetManager.Instance;
-			if (_netManager.masterInfo.topicList.Contains(_topic))
-			{
-				_netManager.subscribeCallbacks.Remove(_topic);
-				Debug.Log($"Unsubscribe from topic {_topic}");
-			}
+			IRISNetManager _netManager = IRISNetManager.Instance;
+			_netManager.subscribeCallbacks.Remove(_topic);
+			Debug.Log($"Unsubscribe from topic {_topic}");
 		}
 
 	}
 
-    // Service class: Since it is running in the main thread, 
+	// Service class: Since it is running in the main thread, 
 	// so we don't need to destroy it
 	public class Service<RequestType, ResponseType>
 	{

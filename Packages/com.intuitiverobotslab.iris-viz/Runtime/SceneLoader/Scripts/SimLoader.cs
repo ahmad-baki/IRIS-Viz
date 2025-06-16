@@ -25,6 +25,7 @@ namespace IRIS.SceneLoader
         private Dictionary<string, List<Tuple<SimTexture, Material>>> _pendingTexture = new();
         // Services
         private Service<SimScene, string> loadSimSceneService;
+        private Subscriber<AssetData> receiveAssetSub;
 
         void Start()
         {
@@ -32,6 +33,7 @@ namespace IRIS.SceneLoader
             updateAction = () => { };
             OnSceneLoaded += () => Debug.Log("Scene Loaded");
             loadSimSceneService = new Service<SimScene, string>("LoadSimScene", LoadSimScene, true);
+            receiveAssetSub = new Subscriber<AssetData>("Asset", ReceiveAssets);
         }
 
         private string LoadSimScene(SimScene simScene)
@@ -53,48 +55,77 @@ namespace IRIS.SceneLoader
             _simSceneObj = CreateObject(gameObject.transform, _simScene.root);
             local_watch.Stop();
             Debug.Log($"Building Scene in {local_watch.ElapsedMilliseconds} ms");
-            Task.Run(() => DownloadAssets());
+            // Task.Run(() => DownloadAssets());
             OnSceneLoaded?.Invoke();
         }
 
-        public void DownloadAssets()
+
+        public void ReceiveAssets(AssetData assetData)
         {
-            var local_watch = new System.Diagnostics.Stopwatch();
-            local_watch.Start();
-            int totalMeshSize = 0;
-            int totalTextureSize = 0;
-            foreach (string hash in _pendingMesh.Keys)
+
+            if (_pendingMesh.ContainsKey(assetData.Hash))
             {
-                byte[] meshData = _netManager.CallBytesService("Asset", hash);
-                foreach (var item in _pendingMesh[hash])
+                foreach (var item in _pendingMesh[assetData.Hash])
                 {
                     var (simMesh, meshFilter) = item;
-                    RunOnMainThread(() => BuildMesh(meshData, simMesh, meshFilter));
+                    RunOnMainThread(() => BuildMesh(assetData.Data, simMesh, meshFilter));
                 }
-                totalMeshSize += meshData.Length;
+                _pendingMesh.Remove(assetData.Hash);
+                RunOnMainThread(() => Debug.Log($"Downloaded {assetData.SizeMB}MB meshes."));
             }
-            foreach (string hash in _pendingTexture.Keys)
+            if (_pendingTexture.ContainsKey(assetData.Hash))
             {
-                byte[] texData = _netManager.CallBytesService("Asset", hash);
-                foreach (var item in _pendingTexture[hash])
+                foreach (var item in _pendingTexture[assetData.Hash])
                 {
                     var (simTex, material) = item;
-                    RunOnMainThread(() => BuildTexture(texData, simTex, material));
+                    RunOnMainThread(() => BuildTexture(assetData.Data, simTex, material));
                 }
-                totalTextureSize += texData.Length;
+                _pendingTexture.Remove(assetData.Hash);
+                RunOnMainThread(() => Debug.Log($"Downloaded {assetData.SizeMB}MB textures."));
             }
-
-            double meshSizeMB = Math.Round(totalMeshSize / Math.Pow(2, 20), 2);
-            double textureSizeMB = Math.Round(totalTextureSize / Math.Pow(2, 20), 2);
-
-            local_watch.Stop();
-            _pendingMesh.Clear();
-            _pendingTexture.Clear();
-
-            // When debug run in the sub thread, it will not send the log to the server
-            RunOnMainThread(() => Debug.Log($"Downloaded {meshSizeMB}MB meshes, {textureSizeMB}MB textures."));
-            RunOnMainThread(() => Debug.Log($"Downloaded Asset in {local_watch.ElapsedMilliseconds} ms"));
         }
+
+        #region CLIENT_CODE
+
+        // public void DownloadAssets()
+        // {
+        //     var local_watch = new System.Diagnostics.Stopwatch();
+        //     local_watch.Start();
+        //     int totalMeshSize = 0;
+        //     int totalTextureSize = 0;
+        //     foreach (string hash in _pendingMesh.Keys)
+        //     {
+        //         byte[] meshData = _netManager.CallBytesService("Asset", hash);
+        //         foreach (var item in _pendingMesh[hash])
+        //         {
+        //             var (simMesh, meshFilter) = item;
+        //             RunOnMainThread(() => BuildMesh(meshData, simMesh, meshFilter));
+        //         }
+        //         totalMeshSize += meshData.Length;
+        //     }
+        //     foreach (string hash in _pendingTexture.Keys)
+        //     {
+        //         byte[] texData = _netManager.CallBytesService("Asset", hash);
+        //         foreach (var item in _pendingTexture[hash])
+        //         {
+        //             var (simTex, material) = item;
+        //             RunOnMainThread(() => BuildTexture(texData, simTex, material));
+        //         }
+        //         totalTextureSize += texData.Length;
+        //     }
+
+        //     double meshSizeMB = Math.Round(totalMeshSize / Math.Pow(2, 20), 2);
+        //     double textureSizeMB = Math.Round(totalTextureSize / Math.Pow(2, 20), 2);
+
+        //     local_watch.Stop();
+        //     _pendingMesh.Clear();
+        //     _pendingTexture.Clear();
+
+        //     // When debug run in the sub thread, it will not send the log to the server
+        //     RunOnMainThread(() => Debug.Log($"Downloaded {meshSizeMB}MB meshes, {textureSizeMB}MB textures."));
+        //     RunOnMainThread(() => Debug.Log($"Downloaded Asset in {local_watch.ElapsedMilliseconds} ms"));
+        // }
+        #endregion
 
         void RunOnMainThread(Action action)
         {
