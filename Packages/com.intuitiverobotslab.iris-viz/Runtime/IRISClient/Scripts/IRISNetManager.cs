@@ -11,6 +11,7 @@ using System.Net.Sockets;
 using IRIS.Utilities;
 using Unity.VisualScripting;
 using System.Net.NetworkInformation;
+using Newtonsoft.Json;
 
 namespace IRIS.Node
 {
@@ -45,7 +46,7 @@ namespace IRIS.Node
 		// Constants
 		private const int HEARTBEAT_INTERVAL = 500;
 		private const string MCAST_ADDR = "239.192.1.1";
-		private static readonly byte[] DISCOVERY_MSG = Encoding.UTF8.GetBytes("IRIS");
+		private const string DISCOVERY_MSG = "IRIS";
 		private Service<string, string> renameService;
 
 		#region CLIENT_CODE
@@ -218,12 +219,13 @@ namespace IRIS.Node
 			using (var udp = new UdpClient())
 			{
 				var endpoint = new IPEndPoint(IPAddress.Parse(MCAST_ADDR), UnityPortSet.DISCOVERY);
-
+				string msgStr = $"{DISCOVERY_MSG}|{JsonConvert.SerializeObject(localInfo)}";
+				byte[] discoveryMsgBytes = MsgUtils.String2Bytes(msgStr);
 				while (isRunning)
 				{
 					try
 					{
-						udp.Send(DISCOVERY_MSG, DISCOVERY_MSG.Length, endpoint);
+						udp.Send(discoveryMsgBytes, discoveryMsgBytes.Length, endpoint);
 						await Task.Delay(HEARTBEAT_INTERVAL, token);
 					}
 					catch (TaskCanceledException)
